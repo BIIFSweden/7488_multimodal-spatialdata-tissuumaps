@@ -117,7 +117,7 @@ def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_s
         None
     """
 
-    print ("  -Adding shape", shape_element)
+    print ("  - Adding shape", shape_element)
     coordinate_system = sdata.coordinate_systems[0]
 
     os.makedirs(f"{output_folder}/{coordinate_system}_coord/shapes", exist_ok=True)
@@ -182,7 +182,7 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
         None
     """
 
-    print ("  -Adding table", table_element)
+    print ("  - Adding table", table_element)
     coordinate_system = sdata.coordinate_systems[0]
     os.makedirs(f"{output_folder}/{coordinate_system}_coord/tables", exist_ok=True)
     table_adata = sdata[table_element]
@@ -236,7 +236,7 @@ def add_points(sdata: SpatialData, points_element: str, output_folder: str, tmap
     Returns:
         None
     """
-    print ("  -Adding points", points_element)
+    print ("  - Adding points", points_element)
     coordinate_system = sdata.coordinate_systems[0]
     os.makedirs(f"{output_folder}/{coordinate_system}_coord/points", exist_ok=True)
     points = sdata[points_element].compute()

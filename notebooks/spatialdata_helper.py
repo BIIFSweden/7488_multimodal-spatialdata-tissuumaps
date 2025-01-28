@@ -225,10 +225,8 @@ def load_DESI(
     
     from sklearn.decomposition import PCA
     pca = PCA(n_components=3)
-    print (image_data.shape)
     # (n_channels, y, x) -> (n_channels, y*x)
     image_data_pca = pca.fit_transform(image_data.reshape(image_data.shape[0], -1).T).T
-    print (image_data_pca.shape)
     image_data_pca = image_data_pca.reshape(3, image_data.shape[1], image_data.shape[2])
     # Convert to RGB uint8
     image_data_pca = (image_data_pca - image_data_pca.min()) / (image_data_pca.max() - image_data_pca.min()) * 255
