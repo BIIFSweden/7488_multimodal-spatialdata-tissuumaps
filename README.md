@@ -13,7 +13,7 @@ Co-registration of images from (i) mass spectrometry imaging and (ii) microscope
 
 1. In a terminal or powershell, run:
     ```
-    uv run jupyter-lab
+    uv run --with jupyter jupyter lab
     ```
     A Jupyter-lab tab should open in your browser. Navigate to the notebook `notebooks/create_spatialdata.ipynb`.
     Change input folder depending on the data location.

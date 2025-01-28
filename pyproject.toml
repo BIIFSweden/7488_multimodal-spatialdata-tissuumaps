@@ -12,7 +12,6 @@ dependencies = [
     "geobuf>=1.1.1",
     "geojson>=3.2.0",
     "ipykernel>=6.29.5",
-    "jupyterlab>=4.3.4",
     "napari-spatialdata>=0.5.5",
     "napari>=0.5.6",
     "protobuf<=3.20",
