@@ -2,7 +2,7 @@
 
 Co-registration of images from (i) mass spectrometry imaging and (ii) microscope images of the same tissue section to identify regions of interest in the microscope images to annotate the mass spectrometry image.
 
-[Download code](archive/refs/heads/main.zip)
+[Download code](../../archive/refs/heads/main.zip)
 
 ## Installation
 
