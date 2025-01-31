@@ -21,6 +21,7 @@ dependencies = [
     "spatialdata>=0.3.0",
     "spatialdata-plot>=0.2.9",
     "tissuumaps>=3.2.1.12",
+    "spatialdata-io>=0.1.7",
 ]
 
 [project.urls]

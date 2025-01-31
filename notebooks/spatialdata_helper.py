@@ -201,10 +201,13 @@ def load_DESI(
                 grid_gdf = GeoDataFrame(grid, columns=["geometry"])
                 DESI_spatial = np.array([list(i.coords[0]) for i in grid_gdf.centroid])
 
-                points_model = PointsModel.parse(
-                    DESI_spatial, transformations=transformations
+                shapes_model = ShapesModel.parse(
+                    DESI_spatial,
+                    geometry=0,
+                    radius=x_cell_size / 2,
+                    transformations=transformations,
                 )
-                sdata.points["DESI"] = points_model
+                sdata.shapes["DESI"] = shapes_model
 
             intensity = image_data[-1].T.flatten()
             DESI_X[obs_name] = intensity

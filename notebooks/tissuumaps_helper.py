@@ -9,6 +9,7 @@ from skimage.measure import approximate_polygon
 from spatialdata.models import get_table_keys
 from spatialdata._core.operations._utils import transform_to_data_extent
 from spatialdata import SpatialData, get_centroids
+from spatialdata_io.experimental import to_legacy_anndata
 from tissuumaps import read_h5ad
 from tissuumaps_schema import CURRENT_SCHEMA_MODULE
 from tissuumaps_schema.base import RootSchemaBaseModel
@@ -183,16 +184,12 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
     print ("  - Adding table", table_element)
     coordinate_system = sdata.coordinate_systems[0]
     os.makedirs(f"{output_folder}/{coordinate_system}_coord/tables", exist_ok=True)
-    table_adata = sdata[table_element]
-    region, _, instance_key  = get_table_keys(table_adata)
-
-    if isinstance(region, list):
-        region = region[0]
-
-    region_data = sdata[region]
-    centroids = get_centroids(region_data, coordinate_system=sdata.coordinate_systems[0]).compute().to_numpy()
-    instances = table_adata.obs[instance_key]
-    table_adata.obsm["spatial"] = centroids[instances]
+    table_adata = to_legacy_anndata(
+        sdata=sdata,
+        coordinate_system=coordinate_system,
+        table_name=table_element,
+        include_images=False
+    )
 
     output_path = f"{output_folder}/{coordinate_system}_coord/tables/{table_element}.h5ad"
     table_adata.write(output_path)
