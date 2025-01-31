@@ -15,7 +15,7 @@ Co-registration of images from (i) mass spectrometry imaging and (ii) microscope
     ```
     uv run --with jupyter jupyter lab
     ```
-    A Jupyter-lab tab should open in your browser. In Jupyter-lab, navigate to the notebook (notebooks/create_spatialdata.ipynb)[notebooks/create_spatialdata.ipynb].
+    A Jupyter-lab tab should open in your browser. In Jupyter-lab, navigate to the notebook [notebooks/create_spatialdata.ipynb](notebooks/create_spatialdata.ipynb).
     Change input and output folders depending on the data location on your disk.
 2. Run the notebook.
 3. Test TissUUmaps output in [TissUUmaps](https://tissuumaps.github.io/installation/).
