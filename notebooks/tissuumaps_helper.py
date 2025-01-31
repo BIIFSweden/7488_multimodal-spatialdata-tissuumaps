@@ -121,8 +121,6 @@ def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_s
     coordinate_system = sdata.coordinate_systems[0]
 
     os.makedirs(f"{output_folder}/{coordinate_system}_coord/shapes", exist_ok=True)
-    if shape_element == "cells":
-        return
 
     output_path = f"{output_folder}/{coordinate_system}_coord/shapes/{shape_element}.pbf"
     if not os.path.exists(output_path):
@@ -186,14 +184,15 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
     coordinate_system = sdata.coordinate_systems[0]
     os.makedirs(f"{output_folder}/{coordinate_system}_coord/tables", exist_ok=True)
     table_adata = sdata[table_element]
-    region, _, _ = get_table_keys(table_adata)
+    region, _, instance_key  = get_table_keys(table_adata)
 
     if isinstance(region, list):
         region = region[0]
 
     region_data = sdata[region]
     centroids = get_centroids(region_data, coordinate_system=sdata.coordinate_systems[0]).compute().to_numpy()
-    table_adata.obsm["spatial"] = centroids
+    instances = table_adata.obs[instance_key]
+    table_adata.obsm["spatial"] = centroids[instances]
 
     output_path = f"{output_folder}/{coordinate_system}_coord/tables/{table_element}.h5ad"
     table_adata.write(output_path)
@@ -281,43 +280,33 @@ def get_tmap_state() -> Dict:
     return json_data.dict(by_alias=True, exclude_none=True)
 
 
-def spatialdata_to_tissuumaps(sdata: SpatialData, output_folder: str, coordinate_system: str) -> None:
+def spatialdata_to_tissuumaps(
+    sdata: SpatialData, 
+    elements: Dict[str, str],
+    output_folder: str, 
+    coordinate_system: str
+) -> None:
     os.makedirs(output_folder, exist_ok=True)
-
-    sdata = transform_to_data_extent(
-        sdata, coordinate_system=coordinate_system, target_unit_to_pixels=1, maintain_positioning=False
-    )
+    if len(sdata.coordinate_systems) > 1:
+        sdata = transform_to_data_extent(
+            sdata, coordinate_system=coordinate_system, target_unit_to_pixels=1, maintain_positioning=False
+        )
     tmap_state = get_tmap_state()
 
-    for image_element in sdata.images:
+    for image_element in elements["images"]:# or sdata.images:
         add_image(sdata, image_element, output_folder, tmap_state)
 
-    for shape_element in sdata.shapes:
+    for shape_element in elements["shapes"]:# or sdata.shapes:
         add_shape(sdata, shape_element, output_folder, tmap_state)
 
-    for table_element in sdata.tables:
+    for table_element in elements["tables"]:# or sdata.tables:
         add_table(sdata, table_element, output_folder, tmap_state)
 
-    for points_element in sdata.points:
+    for points_element in elements["points"]:# or sdata.points:
         add_points(sdata, points_element, output_folder, tmap_state)
     
-    del tmap_state["markerFiles"][2]
-    tmap_state["markerFiles"][0]["expectedHeader"]["scale_factor"] = 2
-    tmap_state["markerFiles"][1]["expectedHeader"]["scale_factor"] = 0.4
-    tmap_state["markerFiles"][2]["expectedHeader"]["scale_factor"] = 0.1
-    tmap_state["markerFiles"][0]["expectedHeader"]["shape_fixed"] = "square"
-    for markerFile in tmap_state["markerFiles"]:
-        for dropdownOption in markerFile["dropdownOptions"]:
-            dropdownOption["name"] = dropdownOption["name"].replace("Gene expression: ", "")
-
-    tmap_state["layers"][-1]["clip"] = {
-        "x": sdata["SCRINSHOT_DOT_COORDINATES"].x.compute().min(),
-        "y": sdata["SCRINSHOT_DOT_COORDINATES"].y.compute().min(),
-        "w": sdata["SCRINSHOT_DOT_COORDINATES"].x.compute().max() - sdata["SCRINSHOT_DOT_COORDINATES"].x.compute().min(),
-        "h": sdata["SCRINSHOT_DOT_COORDINATES"].y.compute().max() - sdata["SCRINSHOT_DOT_COORDINATES"].y.compute().min(),
-    }
-    
     # Save tmap file
-    with open(f"{output_folder}/tissuumaps.tmap", "w") as f:
+    with open(f"{output_folder}/tissuumaps_{coordinate_system}.tmap", "w") as f:
         json.dump(tmap_state, f, indent=2)
     
+    return sdata, f"{output_folder}/tissuumaps_{coordinate_system}.tmap"
