@@ -197,7 +197,7 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
     tmap = read_h5ad.h5ad_to_tmap("", output_path, library_id=None)
     single_markerfile = tmap["markerFiles"][0]
     single_markerfile["dropdownOptions"] = [
-        option for markerfile in tmap["markerFiles"][1:]
+        option for markerfile in tmap["markerFiles"]
         for option in markerfile["dropdownOptions"]
     ]
     single_markerfile.update({
