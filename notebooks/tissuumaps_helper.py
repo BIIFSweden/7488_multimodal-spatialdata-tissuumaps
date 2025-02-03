@@ -8,7 +8,7 @@ from typing import Dict
 from skimage.measure import approximate_polygon
 from spatialdata.models import get_table_keys
 from spatialdata._core.operations._utils import transform_to_data_extent
-from spatialdata import SpatialData, get_centroids
+from spatialdata import SpatialData, get_centroids, get_extent, to_circles
 from spatialdata_io.experimental import to_legacy_anndata
 from tissuumaps import read_h5ad
 from tissuumaps_schema import CURRENT_SCHEMA_MODULE
@@ -207,6 +207,17 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
         "uid": table_element.replace("_",""),
     })
     single_markerfile["expectedHeader"]["cb_cmap"] = "interpolateViridis"
+    extent = get_extent(sdata, coordinate_system=coordinate_system, exact=False)
+    
+    region, _, instance_key  = get_table_keys(table_adata)
+    if isinstance(region, list):
+        region = region[0]
+    region_circles = to_circles(sdata[region])
+    radius = region_circles["radius"].iloc[0]
+    tmap_factor = 0.0037244394752190928
+    scale = radius * 2 / (extent["x"][1] - extent["x"][0])
+    scale = scale / tmap_factor
+    single_markerfile["expectedHeader"]["scale_factor"] = scale
 
     tmap_state["markerFiles"].append(single_markerfile)
 
