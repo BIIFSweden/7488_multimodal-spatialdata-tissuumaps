@@ -100,13 +100,12 @@ def roi_to_geojson(
     """
     if not os.path.exists(output_file):
         features = []
-
         for filename in tqdm(os.listdir(input_folder)):
             if filename.endswith(".roi"):
                 roi_path = os.path.join(input_folder, filename)
                 try:
                     roi = ImagejRoi.fromfile(roi_path)
-                    if roi.roitype in (ROI_TYPE.TRACED, ROI_TYPE.POLYGON):
+                    if roi.roitype in (ROI_TYPE.TRACED, ROI_TYPE.POLYGON, ROI_TYPE.FREEHAND):
                         coords = roi.coordinates().tolist()
                         coords.append(coords[0])
                         feature = geojson.Feature(
@@ -177,8 +176,10 @@ def load_DESI(
     image_data = []
     for filename in os.listdir(input_folder):
         if filename.endswith(".txt"):
-            obs_name = filename[:-4].split("13Oct_P3_lung_DESI_SCRINSHOT_")[1]
-            obs_name = "".join(e if e.isalnum() or e == "-" else "_" for e in obs_name)
+            #obs_name = filename[:-4].split("13Oct_P3_lung_DESI_SCRINSHOT_")[1]
+            obs_name = filename.replace(input_folder, "").replace(".txt", "")
+
+            print(obs_name)
             image_data.append(
                 pd.read_csv(os.path.join(input_folder, filename), sep="\t", header=None).to_numpy()
             )
