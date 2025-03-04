@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 import os
 import json
 import numpy as np
@@ -8,7 +11,7 @@ from typing import Dict
 from skimage.measure import approximate_polygon
 from spatialdata.models import get_table_keys
 from spatialdata._core.operations._utils import transform_to_data_extent
-from spatialdata import SpatialData, get_centroids
+from spatialdata import SpatialData, get_centroids, get_extent, to_circles
 from spatialdata_io.experimental import to_legacy_anndata
 from tissuumaps import read_h5ad
 from tissuumaps_schema import CURRENT_SCHEMA_MODULE
@@ -16,7 +19,7 @@ from tissuumaps_schema.base import RootSchemaBaseModel
 from anndata import AnnData
 
 # Constants
-VIPS_JPEG_COMPRESSION = 100
+VIPS_JPEG_COMPRESSION = 80
 VIPS_EXCLUDE_MIN_INTENSITY = False
 VIPS_FORCE_RESCALE = True
 
@@ -141,10 +144,12 @@ def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_s
                         ],
                     },
                 }
-                for f in geojson_data["features"]
+                for f in geojson_data["features"] if f["geometry"]["type"] == "Polygon"
             ],
         }
-
+        if not geojson_data_approx["features"]:
+            return
+            
         with open(output_path, "wb") as f:
             pbf = geobuf.encode(geojson_data_approx, 3)
             data = geobuf.geobuf_pb2.Data()
@@ -197,7 +202,7 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
     tmap = read_h5ad.h5ad_to_tmap("", output_path, library_id=None)
     single_markerfile = tmap["markerFiles"][0]
     single_markerfile["dropdownOptions"] = [
-        option for markerfile in tmap["markerFiles"][1:]
+        option for markerfile in tmap["markerFiles"]
         for option in markerfile["dropdownOptions"]
     ]
     single_markerfile.update({
@@ -207,6 +212,17 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
         "uid": table_element.replace("_",""),
     })
     single_markerfile["expectedHeader"]["cb_cmap"] = "interpolateViridis"
+    extent = get_extent(sdata, coordinate_system=coordinate_system, exact=False)
+    
+    region, _, instance_key  = get_table_keys(table_adata)
+    if isinstance(region, list):
+        region = region[0]
+    region_circles = to_circles(sdata[region])
+    radius = region_circles["radius"].iloc[0]
+    tmap_factor = 0.0037244394752190928
+    scale = radius * 2 / (extent["x"][1] - extent["x"][0])
+    scale = scale / tmap_factor
+    single_markerfile["expectedHeader"]["scale_factor"] = scale
 
     tmap_state["markerFiles"].append(single_markerfile)
 
@@ -291,19 +307,62 @@ def spatialdata_to_tissuumaps(
     tmap_state = get_tmap_state()
 
     for image_element in elements["images"]:# or sdata.images:
-        add_image(sdata, image_element, output_folder, tmap_state)
+        try:
+            add_image(sdata, image_element, output_folder, tmap_state)
+        except Exception as e:
+            print(f"Failed to add image {image_element}: {e}")
 
     for shape_element in elements["shapes"]:# or sdata.shapes:
-        add_shape(sdata, shape_element, output_folder, tmap_state)
+        try:
+            add_shape(sdata, shape_element, output_folder, tmap_state)
+        except Exception as e:
+            print(f"Failed to add shape {shape_element}: {e}")
 
     for table_element in elements["tables"]:# or sdata.tables:
-        add_table(sdata, table_element, output_folder, tmap_state)
+        try:
+            add_table(sdata, table_element, output_folder, tmap_state)
+        except Exception as e:
+            print(f"Failed to add table {table_element}: {e}")
 
     for points_element in elements["points"]:# or sdata.points:
-        add_points(sdata, points_element, output_folder, tmap_state)
+        try:
+            add_points(sdata, points_element, output_folder, tmap_state)
+        except Exception as e:
+            print(f"Failed to add points {points_element}: {e}")
     
     # Save tmap file
     with open(f"{output_folder}/tissuumaps_{coordinate_system}.tmap", "w") as f:
         json.dump(tmap_state, f, indent=2)
     
     return sdata, f"{output_folder}/tissuumaps_{coordinate_system}.tmap"
+
+# Add main function with parameters for input file and output folder
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Convert SpatialData to TissUUmaps")
+    parser.add_argument("input_file", type=str, help="Path to the input SpatialData file")
+    parser.add_argument("output_folder", type=str, help="Path to the output folder")
+    parser.add_argument("--coordinate_systems", type=str, nargs="+", help="List of coordinate systems to convert to")
+
+    args = parser.parse_args()
+
+    sdata = SpatialData.read(args.input_file)
+
+    if args.coordinate_systems is None:
+        coordinate_systems = sdata.coordinate_systems
+    else:
+        coordinate_systems = args.coordinate_systems
+
+    for cs in coordinate_systems:
+        print(f"Converting to TissUUmaps in coordinate system: {cs}")
+        sdata_extended, tmap_file = spatialdata_to_tissuumaps(
+            sdata, 
+            elements = {
+                "images": sdata.images,
+                "shapes": sdata.shapes,
+                "tables": sdata.tables,
+                "points": sdata.points
+            },
+            output_folder = args.output_folder,
+            coordinate_system = cs
+        )
