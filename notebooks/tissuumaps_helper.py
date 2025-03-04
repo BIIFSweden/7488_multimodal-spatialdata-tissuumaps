@@ -19,7 +19,7 @@ from tissuumaps_schema.base import RootSchemaBaseModel
 from anndata import AnnData
 
 # Constants
-VIPS_JPEG_COMPRESSION = 100
+VIPS_JPEG_COMPRESSION = 80
 VIPS_EXCLUDE_MIN_INTENSITY = False
 VIPS_FORCE_RESCALE = True
 
