@@ -157,74 +157,59 @@ def load_points(
     )
     sdata.points[element_name] = points
 
-def load_DESI(
-    sdata: Any, input_folder: str, element_name: str, transformations: Dict[str, Any]
+def load_numpy_grid(
+    sdata: Any, obs_array: np.ndarray, obs_names: list, element_name: str, transformations: Dict[str, Any]
 ) -> None:
     """
-    Load DESI data and add it to SpatialData.
+    Load 3D numpy array containing channels and add it to SpatialData as a table and image.
 
     Parameters:
         sdata (Any): SpatialData object.
-        input_folder (str): Path to the folder containing DESI text files.
-        element_name (str): Name of the DESI element in SpatialData.
+        obs_array (np.ndarray): Array containing 3D numpy array, where the first dimension is the number of channels.
+        obs_names (list): List of channel names.
+        element_name (str): Name of the element in SpatialData.
         transformations (Dict[str, Any]): Transformation dictionary for spatial coordinates.
     """
-    DESI_X = pd.DataFrame()
-    DESI_spatial = None
-
-    if "DESI" in sdata.points:
-        del sdata.points["DESI"]
-    image_data = []
-    for filename in os.listdir(input_folder):
-        if filename.endswith(".txt"):
-            obs_name = filename[:-4].split("13Oct_P3_lung_DESI_SCRINSHOT_")[1]
-            obs_name = "".join(e if e.isalnum() or e == "-" else "_" for e in obs_name)
-            image_data.append(
-                pd.read_csv(os.path.join(input_folder, filename), sep="\t", header=None).to_numpy()
+    grid = []
+    x_cell_size, y_cell_size = 1, 1
+    for x0 in np.arange(0, obs_array.shape[-1], x_cell_size):
+        for y0 in np.arange(0, obs_array.shape[-2], y_cell_size):
+            cell = Polygon(
+                [
+                    (x0, y0),
+                    (x0 + x_cell_size, y0),
+                    (x0 + x_cell_size, y0 + y_cell_size),
+                    (x0, y0 + y_cell_size),
+                ]
             )
+            grid.append(cell)
 
-            if DESI_spatial is None:
-                grid = []
-                x_cell_size, y_cell_size = 1, 1
-                for x0 in np.arange(0, image_data[-1].shape[1], x_cell_size):
-                    for y0 in np.arange(0, image_data[-1].shape[0], y_cell_size):
-                        cell = Polygon(
-                            [
-                                (x0, y0),
-                                (x0 + x_cell_size, y0),
-                                (x0 + x_cell_size, y0 + y_cell_size),
-                                (x0, y0 + y_cell_size),
-                            ]
-                        )
-                        grid.append(cell)
+    grid_gdf = GeoDataFrame(grid, columns=["geometry"])
+    grid_spatial = np.array([list(i.coords[0]) for i in grid_gdf.centroid])
 
-                grid_gdf = GeoDataFrame(grid, columns=["geometry"])
-                DESI_spatial = np.array([list(i.coords[0]) for i in grid_gdf.centroid])
+    shapes_model = ShapesModel.parse(
+        grid_spatial,
+        geometry=0,
+        radius=x_cell_size / 2,
+        transformations=transformations,
+    )
+    sdata.shapes[f"{element_name}_grid"] = shapes_model
+    adata_X = pd.DataFrame()
+    
+    for obs_name, obs_channel in zip(obs_names, obs_array):
+        adata_X[obs_name] = obs_channel.T.flatten()
 
-                shapes_model = ShapesModel.parse(
-                    DESI_spatial,
-                    geometry=0,
-                    radius=x_cell_size / 2,
-                    transformations=transformations,
-                )
-                sdata.shapes["DESI"] = shapes_model
-
-            intensity = image_data[-1].T.flatten()
-            DESI_X[obs_name] = intensity
-
-    adata = anndata.AnnData(X=DESI_X)
-    adata.obs["region_key"] = "DESI"
+    adata = anndata.AnnData(X=adata_X)
+    adata.obs["region_key"] = f"{element_name}_grid"
     adata.obs["Index"] = adata.obs.index.astype(int)
-    adata.obsm["spatial"] = DESI_spatial
-
-    #adata.write_h5ad("../data/output/DESI_obs.h5ad")
+    adata.obsm["spatial"] = grid_spatial
 
     sdata.tables[f"{element_name}_obs"] = TableModel.parse(
-        adata, region="DESI", region_key="region_key", instance_key="Index"
+        adata, region=f"{element_name}_grid", region_key="region_key", instance_key="Index"
     )
 
-    # Perform PCA on DESI data to convert N channels to RGB channels
-    image_data = np.array(image_data)
+    # Perform PCA on channels to convert N channels to RGB channels
+    image_data = obs_array
     
     from sklearn.decomposition import PCA
     pca = PCA(n_components=3)
@@ -246,3 +231,28 @@ def load_DESI(
     )
 
     sdata.images[f"{element_name}_image"] = image
+
+def load_DESI(
+    sdata: Any, input_folder: str, element_name: str, transformations: Dict[str, Any]
+) -> None:
+    """
+    Load DESI data and add it to SpatialData.
+
+    Parameters:
+        sdata (Any): SpatialData object.
+        input_folder (str): Path to the folder containing DESI text files.
+        element_name (str): Name of the DESI element in SpatialData.
+        transformations (Dict[str, Any]): Transformation dictionary for spatial coordinates.
+    """
+    image_data = []
+    obs_names = []
+    for filename in os.listdir(input_folder):
+        if filename.endswith(".txt"):
+            obs_name = filename[:-4].split("13Oct_P3_lung_DESI_SCRINSHOT_")[1]
+            obs_name = "".join(e if e.isalnum() or e == "-" else "_" for e in obs_name)
+            image_data.append(
+                pd.read_csv(os.path.join(input_folder, filename), sep="\t", header=None).to_numpy()
+            )
+            obs_names.append(obs_name)
+    image_data = np.array(image_data)
+    load_numpy_grid(sdata, image_data, obs_names, element_name, transformations)
