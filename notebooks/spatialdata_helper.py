@@ -106,7 +106,7 @@ def load_rois(
                 roi_path = os.path.join(input_folder, filename)
                 try:
                     roi = ImagejRoi.fromfile(roi_path)
-                    if roi.roitype in (ROI_TYPE.TRACED, ROI_TYPE.POLYGON):
+                    if roi.roitype in (ROI_TYPE.TRACED, ROI_TYPE.POLYGON, ROI_TYPE.FREEHAND):
                         coords = roi.coordinates().tolist()
                         coords.append(coords[0])
                         feature = geojson.Feature(
