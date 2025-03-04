@@ -248,7 +248,7 @@ def load_DESI(
     obs_names = []
     for filename in os.listdir(input_folder):
         if filename.endswith(".txt"):
-            obs_name = filename[:-4].split("13Oct_P3_lung_DESI_SCRINSHOT_")[1]
+            obs_name = filename.replace(input_folder, "").replace(".txt", "")
             obs_name = "".join(e if e.isalnum() or e == "-" else "_" for e in obs_name)
             image_data.append(
                 pd.read_csv(os.path.join(input_folder, filename), sep="\t", header=None).to_numpy()
