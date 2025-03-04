@@ -223,7 +223,7 @@ def load_DESI(
         adata, region="DESI", region_key="region_key", instance_key="Index"
     )
 
-    # Perform PCA on DESI data to convert N channels to 1 channel
+    # Perform PCA on DESI data to convert N channels to RGB channels
     image_data = np.array(image_data)
     
     from sklearn.decomposition import PCA
