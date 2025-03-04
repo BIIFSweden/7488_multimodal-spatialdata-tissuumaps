@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 import os
 import json
 import numpy as np
@@ -302,19 +305,62 @@ def spatialdata_to_tissuumaps(
     tmap_state = get_tmap_state()
 
     for image_element in elements["images"]:# or sdata.images:
-        add_image(sdata, image_element, output_folder, tmap_state)
+        try:
+            add_image(sdata, image_element, output_folder, tmap_state)
+        except Exception as e:
+            print(f"Failed to add image {image_element}: {e}")
 
     for shape_element in elements["shapes"]:# or sdata.shapes:
-        add_shape(sdata, shape_element, output_folder, tmap_state)
+        try:
+            add_shape(sdata, shape_element, output_folder, tmap_state)
+        except Exception as e:
+            print(f"Failed to add shape {shape_element}: {e}")
 
     for table_element in elements["tables"]:# or sdata.tables:
-        add_table(sdata, table_element, output_folder, tmap_state)
+        try:
+            add_table(sdata, table_element, output_folder, tmap_state)
+        except Exception as e:
+            print(f"Failed to add table {table_element}: {e}")
 
     for points_element in elements["points"]:# or sdata.points:
-        add_points(sdata, points_element, output_folder, tmap_state)
+        try:
+            add_points(sdata, points_element, output_folder, tmap_state)
+        except Exception as e:
+            print(f"Failed to add points {points_element}: {e}")
     
     # Save tmap file
     with open(f"{output_folder}/tissuumaps_{coordinate_system}.tmap", "w") as f:
         json.dump(tmap_state, f, indent=2)
     
     return sdata, f"{output_folder}/tissuumaps_{coordinate_system}.tmap"
+
+# Add main function with parameters for input file and output folder
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Convert SpatialData to TissUUmaps")
+    parser.add_argument("input_file", type=str, help="Path to the input SpatialData file")
+    parser.add_argument("output_folder", type=str, help="Path to the output folder")
+    parser.add_argument("--coordinate_systems", type=str, nargs="+", help="List of coordinate systems to convert to")
+
+    args = parser.parse_args()
+
+    sdata = SpatialData.read(args.input_file)
+
+    if args.coordinate_systems is None:
+        coordinate_systems = sdata.coordinate_systems
+    else:
+        coordinate_systems = args.coordinate_systems
+
+    for cs in coordinate_systems:
+        print(f"Converting to TissUUmaps in coordinate system: {cs}")
+        sdata_extended, tmap_file = spatialdata_to_tissuumaps(
+            sdata, 
+            elements = {
+                "images": sdata.images,
+                "shapes": sdata.shapes,
+                "tables": sdata.tables,
+                "points": sdata.points
+            },
+            output_folder = args.output_folder,
+            coordinate_system = cs
+        )
