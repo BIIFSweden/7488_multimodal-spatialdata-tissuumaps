@@ -79,7 +79,7 @@ def load_image(
     )
     sdata.images[element_name] = image
 
-def roi_to_geojson(
+def load_rois(
     sdata: Any,
     input_folder: str,
     output_file: str,
