@@ -144,10 +144,12 @@ def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_s
                         ],
                     },
                 }
-                for f in geojson_data["features"]
+                for f in geojson_data["features"] if f["geometry"]["type"] == "Polygon"
             ],
         }
-
+        if not geojson_data_approx["features"]:
+            return
+            
         with open(output_path, "wb") as f:
             pbf = geobuf.encode(geojson_data_approx, 3)
             data = geobuf.geobuf_pb2.Data()
