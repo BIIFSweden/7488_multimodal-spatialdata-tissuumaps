@@ -54,13 +54,16 @@ def add_image(sdata: SpatialData, image_element: str, output_folder: str, tmap_s
     output_path = f"{output_folder}/{coordinate_system}_coord/images/{image_element}.tif"
     if not os.path.exists(output_path):
         os.makedirs(f"{output_folder}/{coordinate_system}_coord/images", exist_ok=True)
-        image_data = sdata[image_element].data.compute()[0, :, :].astype(np.float32)
-
+        image_data = sdata[image_element].data.compute().astype(np.float32)
+        if len(image_data.shape) == 2:
+            image_data = np.expand_dims(image_data, axis=0)
+        # Correct dimensions for VIPS
+        image_data = np.moveaxis(image_data, 0, 2)
         img_vips = pyvips.Image.new_from_memory(
             image_data.tobytes(),
             image_data.shape[1],
             image_data.shape[0],
-            bands=1,
+            bands=image_data.shape[2],
             format="float",
         )
 
