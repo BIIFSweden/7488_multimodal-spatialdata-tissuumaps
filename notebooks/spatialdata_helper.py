@@ -73,7 +73,11 @@ def load_image(
         "translation": {"x": 0, "y": 0},
         "dims": ("c", "y", "x"),
     }
-
+    if image_data.shape[0] == 3:
+        metadata["c_coords"] = ["r", "g", "b"]
+    elif image_data.shape[0] == 4:
+        metadata["c_coords"] = ["r", "g", "b", "a"]
+        
     image = Image2DModel.parse(
         data=image_data, transformations=transformations, **metadata
     )
