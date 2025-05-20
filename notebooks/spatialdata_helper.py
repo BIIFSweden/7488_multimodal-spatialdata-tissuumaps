@@ -102,15 +102,21 @@ def load_rois(
         class_color (str): Classification color for the ROIs.
         transformations (Dict[str, Any]): Transformation dictionary for spatial coordinates.
     """
+    
     if not os.path.exists(output_file):
         features = []
 
         for filename in tqdm(os.listdir(input_folder)):
+            
             if filename.endswith(".roi"):
+
                 roi_path = os.path.join(input_folder, filename)
                 try:
+                    
                     roi = ImagejRoi.fromfile(roi_path)
+                    
                     if roi.roitype in (ROI_TYPE.TRACED, ROI_TYPE.POLYGON, ROI_TYPE.FREEHAND):
+                        print(os.path.splitext(filename)[0])
                         coords = roi.coordinates().tolist()
                         coords.append(coords[0])
                         feature = geojson.Feature(
@@ -125,14 +131,24 @@ def load_rois(
                         )
                         features.append(feature)
                 except Exception as e:
+                    
                     print(f"Error processing {filename}: {e}")
-
+                             
         feature_collection = geojson.FeatureCollection(features)
+        
         with open(output_file, "w") as f:
             geojson.dump(feature_collection, f, indent=2)
 
     shapes_model = ShapesModel.parse(output_file, transformations=transformations)
+    
+    # Manually assign the 'name' property from the GeoJSON features
+    with open(output_file, "r") as f:
+        geojson_data = geojson.load(f)
+
+    names = [feature["properties"]["name"] for feature in geojson_data["features"]]
+    shapes_model["name"] = names
     sdata.shapes[class_name] = shapes_model
+
 
 def load_points(
     sdata: Any, input_folder: str, element_name: str, transformations: Dict[str, Any]
@@ -259,4 +275,5 @@ def load_DESI(
             )
             obs_names.append(obs_name)
     image_data = np.array(image_data)
+    #image_data = np.where(image_data == 0, np.nan, image_data) # Set 0 to NA
     load_numpy_grid(sdata, image_data, obs_names, element_name, transformations)
