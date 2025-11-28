@@ -4,26 +4,67 @@ warnings.filterwarnings("ignore")
 import os
 import json
 import numpy as np
+import dask.array as da
 import pandas as pd
 import pyvips
 import geobuf
-from typing import Dict
+from typing import Dict, List
 from skimage.measure import approximate_polygon
 from spatialdata.models import get_table_keys
 from spatialdata._core.operations._utils import transform_to_data_extent
-from spatialdata import SpatialData, get_centroids, get_extent, to_circles
+from spatialdata import SpatialData, get_centroids, get_extent, to_circles, transform
 from spatialdata_io.experimental import to_legacy_anndata
 from tissuumaps import read_h5ad
 from tissuumaps_schema import CURRENT_SCHEMA_MODULE
 from tissuumaps_schema.base import RootSchemaBaseModel
-from anndata import AnnData
+import anndata
 
 # Constants
 VIPS_JPEG_COMPRESSION = 80
 VIPS_EXCLUDE_MIN_INTENSITY = False
 VIPS_FORCE_RESCALE = True
 
-def add_image(sdata: SpatialData, image_element: str, output_folder: str, tmap_state: Dict) -> None:
+
+
+def image_to_float(tree, group = "/scale0", var = "image", dtype=np.float32):
+    """
+    Extract var from group of an xarray-DataTree and return it as a
+    NumPy array of type dtype (default float32).
+
+    Parameters
+    ----------
+    tree   : DataTree
+        The root of the DataTree that holds the data.
+    group  : str, default '/scale0'
+        Path of the node that contains the variable.
+    var    : str, default 'image'
+        Name of the variable to extract.
+    dtype  : NumPy dtype, default np.float32
+        Desired dtype of the returned array.
+
+    Returns
+    -------
+    arr : numpy.ndarray
+        The requested variable as a dense NumPy array in dtype.
+    """
+    try:
+        arr = tree.data.compute()
+        arr = arr.astype(dtype, copy=False)
+    except:
+        node = tree[group] if group else tree
+
+        da_ = node[var]
+
+        arr = da_.data
+        if isinstance(arr, da.Array):          # dask array -> compute
+            arr = arr.compute()
+
+        arr = arr.astype(dtype, copy=False)
+    return arr
+
+
+
+def add_image(sdata: SpatialData, image_element: str, output_folder: str, tmap_state: Dict, layer: int) -> None:
     """
     Adds an image element from a SpatialData object to a specified output folder in a tiled and rescaled format. 
     Updates TissUUmaps `tmap_state` dictionary with information about the newly added image.
@@ -35,6 +76,7 @@ def add_image(sdata: SpatialData, image_element: str, output_folder: str, tmap_s
         output_folder (str): Path to the folder where the output image and its associated tiled representation will be stored.
         tmap_state (Dict): A TissUUmaps project state dictionary. 
                            The function appends the image information to the "layers" key of this dictionary.
+        layer (int): The layer index to assign to the image in TissUUmaps.
 
     Functionality:
         1. Extracts the image data corresponding to `image_element` from the `sdata` object.
@@ -54,7 +96,7 @@ def add_image(sdata: SpatialData, image_element: str, output_folder: str, tmap_s
     output_path = f"{output_folder}/{coordinate_system}_coord/images/{image_element}.tif"
     if not os.path.exists(output_path):
         os.makedirs(f"{output_folder}/{coordinate_system}_coord/images", exist_ok=True)
-        image_data = sdata[image_element].data.compute().astype(np.float32)
+        image_data = image_to_float(sdata[image_element], group=f"/scale0", dtype=np.float32)
         if len(image_data.shape) == 2:
             image_data = np.expand_dims(image_data, axis=0)
         # Correct dimensions for VIPS
@@ -66,10 +108,13 @@ def add_image(sdata: SpatialData, image_element: str, output_folder: str, tmap_s
             bands=image_data.shape[2],
             format="float",
         )
-
-        min_val = img_vips.percent(0)
-        max_val = img_vips.percent(100)
-
+        if image_data.shape[2] == 1:
+            min_val = img_vips.min()#percent(0)
+            max_val = img_vips.max()#percent(98)
+        else:
+            min_val = img_vips.percent(0.1)
+            max_val = img_vips.percent(98)
+            
         if VIPS_EXCLUDE_MIN_INTENSITY:
             absolute_min_val = img_vips.min()
             img_vips_tmp = (img_vips == absolute_min_val).bandand().ifthenelse(max_val + 1, img_vips)
@@ -95,13 +140,16 @@ def add_image(sdata: SpatialData, image_element: str, output_folder: str, tmap_s
             properties=True,
         )
 
-    tmap_state["layers"].append({
-        "name": image_element,
-        "tileSource": f"{coordinate_system}_coord/images/{image_element}.tif.dzi",
-    })
+    tmap_state["layers"].insert(
+        layer,
+        {
+            "name": image_element,
+            "tileSource": f"{coordinate_system}_coord/images/{image_element}.tif.dzi",
+        }
+    )
 
 
-def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_state: Dict) -> None:
+def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_state: Dict, layer: int) -> None:
     """
     Adds a shape element from a SpatialData object to a specified output folder in an approximate format. 
     Updates TissUUmaps `tmap_state` dictionary with information about the newly added shape.
@@ -114,6 +162,7 @@ def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_s
         output_folder (str): Path to the folder where the output shape file will be stored.
         tmap_state (Dict): A TissUUmaps project state dictionary. 
                            The function appends the shape information to the "regionFiles" key of this dictionary.
+        layer (int): The layer index to assign to the shape in TissUUmaps.
 
     Functionality:
         1. Converts the shape data to GeoJSON format and approximates the polygons in the shape data with a tolerance of 0.75.
@@ -131,14 +180,13 @@ def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_s
 
     output_path = f"{output_folder}/{coordinate_system}_coord/shapes/{shape_element}.pbf"
     if not os.path.exists(output_path):
-        geojson_data = json.loads(sdata[shape_element].to_json())
-
+        geojson_data = json.loads(transform(sdata[shape_element], to_coordinate_system=coordinate_system).to_json())
         geojson_data_approx = {
             "type": "FeatureCollection",
             "features": [
                 {
                     **f,
-                    "properties": {**f["properties"], "collectionIndex": 0},
+                    "properties": {**f["properties"], "collectionIndex": layer},
                     "geometry": {
                         **f["geometry"],
                         "coordinates": [
@@ -166,7 +214,7 @@ def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_s
     })
 
 
-def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_state: Dict) -> None:
+def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_state: Dict, layer: int) -> None:
     """
     Adds a table element from a SpatialData object to a specified output folder in a `.h5ad` format. 
     Updates TissUUmaps `tmap_state` dictionary with information about the newly added table.
@@ -178,6 +226,7 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
         output_folder (str): Path to the folder where the output table file will be stored.
         tmap_state (Dict): A TissUUmaps project state dictionary. 
                            The function appends the table information to the "markerFiles" key of this dictionary.
+        layer (int): The layer index to assign to the table in TissUUmaps.
 
     Functionality:
         1. Retrieves the table data (`table_adata`) and determines the associated spatial region.
@@ -203,34 +252,39 @@ def add_table(sdata: SpatialData, table_element: str, output_folder: str, tmap_s
     table_adata.write(output_path)
 
     tmap = read_h5ad.h5ad_to_tmap("", output_path, library_id=None)
-    single_markerfile = tmap["markerFiles"][0]
-    single_markerfile["dropdownOptions"] = [
-        option for markerfile in tmap["markerFiles"]
-        for option in markerfile["dropdownOptions"]
-    ]
-    single_markerfile.update({
-        "path": f"{coordinate_system}_coord/tables/{single_markerfile['path']}",
-        "name": table_element,
-        "title": table_element,
-        "uid": table_element.replace("_",""),
-    })
-    single_markerfile["expectedHeader"]["cb_cmap"] = "interpolateViridis"
-    extent = get_extent(sdata, coordinate_system=coordinate_system, exact=False)
-    
-    region, _, instance_key  = get_table_keys(table_adata)
-    if isinstance(region, list):
-        region = region[0]
-    region_circles = to_circles(sdata[region])
-    radius = region_circles["radius"].iloc[0]
-    tmap_factor = 0.0037244394752190928
-    scale = radius * 2 / (extent["x"][1] - extent["x"][0])
-    scale = scale / tmap_factor
-    single_markerfile["expectedHeader"]["scale_factor"] = scale
+    for i, markerfile in enumerate(
+        [tmap["markerFiles"][0:-1], [tmap["markerFiles"][-1]]]
+    ):
+        single_markerfile = markerfile[0]
+        single_markerfile["dropdownOptions"] = [
+            option for markerfile in markerfile
+            for option in markerfile["dropdownOptions"]
+        ]
+        title = f"{table_element} (metadata)" if i == 0 else table_element
+        single_markerfile.update({
+            "path": f"{coordinate_system}_coord/tables/{single_markerfile['path']}",
+            "name": title,
+            "title": title,
+            "uid": table_element.replace("_",""),
+        })
+        single_markerfile["expectedHeader"]["cb_cmap"] = "interpolateViridis"
+        single_markerfile["expectedHeader"]["collectionItem_fixed"] = layer
+        extent = get_extent(sdata, coordinate_system=coordinate_system, exact=False)
+        
+        region, _, instance_key  = get_table_keys(table_adata)
+        if isinstance(region, list):
+            region = region[0]
+        region_circles = to_circles(sdata[region])
+        radius = region_circles["radius"].iloc[0]
+        tmap_factor = 0.0037244394752190928
+        scale = radius * 2 / (extent["x"][1] - extent["x"][0])
+        scale = scale / tmap_factor
+        single_markerfile["expectedHeader"]["scale_factor"] = scale
 
-    tmap_state["markerFiles"].append(single_markerfile)
+        tmap_state["markerFiles"].append(single_markerfile)
 
 
-def add_points(sdata: SpatialData, points_element: str, output_folder: str, tmap_state: Dict) -> None:
+def add_points(sdata: SpatialData, points_element: str, output_folder: str, tmap_state: Dict, layer: int) -> None:
     """
     Adds a points element from a SpatialData object to a specified output folder in a `.h5ad` format.
     Updates TissUUmaps `tmap_state` dictionary with information about the newly added points.
@@ -242,6 +296,7 @@ def add_points(sdata: SpatialData, points_element: str, output_folder: str, tmap
         output_folder (str): Path to the folder where the output points file will be stored.
         tmap_state (Dict): A TissUUmaps project state dictionary. 
                            The function appends the points information to the "markerFiles" key of this dictionary.
+        layer (int): The layer index to assign to the points in TissUUmaps.
 
     Functionality:
         1. Retrieves the points data and computes the centroids of the spatial region.
@@ -255,7 +310,7 @@ def add_points(sdata: SpatialData, points_element: str, output_folder: str, tmap
     coordinate_system = sdata.coordinate_systems[0]
     os.makedirs(f"{output_folder}/{coordinate_system}_coord/points", exist_ok=True)
     points = sdata[points_element].compute()
-    adata = AnnData(obs=points)
+    adata = anndata.AnnData(obs=points)
 
     centroids = get_centroids(sdata[points_element], coordinate_system=sdata.coordinate_systems[0]).compute().to_numpy()
     adata.obsm["spatial"] = centroids
@@ -283,6 +338,7 @@ def add_points(sdata: SpatialData, points_element: str, output_folder: str, tmap
         "uid": points_element.replace("_",""),
     })
     single_markerfile["expectedHeader"]["cb_cmap"] = "interpolateViridis"
+    single_markerfile["expectedHeader"]["collectionItem_fixed"] = layer
 
     tmap_state["markerFiles"].append(single_markerfile)
 
@@ -297,47 +353,117 @@ def get_tmap_state() -> Dict:
 
 
 def spatialdata_to_tissuumaps(
-    sdata: SpatialData, 
+    sdata_raw: SpatialData, 
     elements: Dict[str, str],
     output_folder: str, 
-    coordinate_system: str
+    coordinate_systems: List[str]
 ) -> None:
     os.makedirs(output_folder, exist_ok=True)
-    if len(sdata.coordinate_systems) > 1:
-        sdata = transform_to_data_extent(
-            sdata, coordinate_system=coordinate_system, target_unit_to_pixels=1, maintain_positioning=False
-        )
+    layer_index = 0
+    offset_x = 0
+    offset_y = 0
     tmap_state = get_tmap_state()
 
-    for image_element in elements["images"]:# or sdata.images:
-        try:
-            add_image(sdata, image_element, output_folder, tmap_state)
-        except Exception as e:
-            print(f"Failed to add image {image_element}: {e}")
+    table_elements = {}
+    for coordinate_system in coordinate_systems:
+        print (f"Converting to TissUUmaps in coordinate system: {coordinate_system}")
+        sdata = transform_to_data_extent(
+            sdata_raw, coordinate_system=coordinate_system, target_unit_to_pixels=1, maintain_positioning=False
+        )
+        sdata_extent = get_extent(sdata_raw, coordinate_system=coordinate_system)
+        for shape_element in elements["shapes"]:# or sdata.shapes:
+            try:
+                add_shape(sdata, shape_element, output_folder, tmap_state, layer_index)
+            except Exception as e:
+                print(f"Failed to add shape {shape_element}: {e}")
 
-    for shape_element in elements["shapes"]:# or sdata.shapes:
-        try:
-            add_shape(sdata, shape_element, output_folder, tmap_state)
-        except Exception as e:
-            print(f"Failed to add shape {shape_element}: {e}")
+        for table_element in elements["tables"]:# or sdata.tables:
+            try:
+                add_table(sdata, table_element, output_folder, tmap_state, layer_index)
+                if table_element not in table_elements:
+                    table_elements[table_element] = []
+                table_elements[table_element].append({
+                    "coordinate_system": coordinate_system,
+                    "layer_index": layer_index,
+                    "table_element": table_element
+                })
+            except Exception as e:
+                print(f"Failed to add table {table_element}: {e}")
 
-    for table_element in elements["tables"]:# or sdata.tables:
-        try:
-            add_table(sdata, table_element, output_folder, tmap_state)
-        except Exception as e:
-            print(f"Failed to add table {table_element}: {e}")
+        for points_element in elements["points"]:# or sdata.points:
+            try:
+                add_points(sdata, points_element, output_folder, tmap_state, layer_index)
+            except Exception as e:
+                print(f"Failed to add points {points_element}: {e}")
 
-    for points_element in elements["points"]:# or sdata.points:
-        try:
-            add_points(sdata, points_element, output_folder, tmap_state)
-        except Exception as e:
-            print(f"Failed to add points {points_element}: {e}")
-    
+        for image_element in elements["images"]:# or sdata.images:
+            try:
+                add_image(sdata, image_element, output_folder, tmap_state, layer_index)
+                extent = get_extent(sdata_raw[image_element], coordinate_system=coordinate_system)
+                delta_x = extent['x'][0] - sdata_extent['x'][0], extent['x'][1] - sdata_extent['x'][1]
+                delta_y = extent['y'][0] - sdata_extent['y'][0], extent['y'][1] - sdata_extent['y'][1]
+                tmap_state["layers"][-1]["clip"] = {
+                    "x": delta_x[0],
+                    "y": delta_y[0],
+                    "w": extent['x'][1] - extent['x'][0],
+                    "h": extent['y'][1] - extent['y'][0]
+                }
+                tmap_state["layers"][-1]["x"] = offset_x
+                tmap_state["layers"][-1]["y"] = offset_y
+                layer_index += 1
+            except Exception as e:
+                print(f"Failed to add image {image_element}: {e}")
+        offset_x += (sdata_extent['x'][1] - sdata_extent['x'][0]) * 1.1
+        offset_y += 0
+
+    # Merge tables that come from different coordinate systems but represent the same data
+    for table_element in table_elements.values():
+        if len(table_element) <= 1:
+            continue
+        te_name = table_element[0]['table_element']
+        # Get adatas paths
+        adatas = []
+        for cs in table_element:
+            coordinate_system = cs['coordinate_system']
+            path = f"{output_folder}/{coordinate_system}_coord/tables/{te_name}.h5ad"
+            adata = anndata.read_h5ad(path)
+            adata.obs["library_id"] = cs['layer_index']
+            adatas.append(adata)
+        merged_adata = anndata.AnnData.concatenate(*adatas, join="outer", index_unique=None)
+        output_path = f"{output_folder}/merged_tables/{te_name}_merged.h5ad"
+        os.makedirs(f"{output_folder}/merged_tables", exist_ok=True)
+        merged_adata.write(output_path)
+        for name in [f"{te_name} (metadata)", te_name]:
+            # Add merged table to tmap_state
+            # Get first markerFile with table_element name as template
+            template_markerfile = None
+            for mf in tmap_state["markerFiles"]:
+                if mf["name"] == name:
+                    template_markerfile = mf
+                    break
+            tmap_state["markerFiles"] = [mf for mf in tmap_state["markerFiles"] if mf["name"] != name]
+
+            template_markerfile.update({
+                "path": f"merged_tables/{te_name}_merged.h5ad",
+                "expectedHeader": {
+                    **template_markerfile["expectedHeader"],
+                    "collectionItem_col": "/obs/library_id",
+                    "collectionItem_fixed": "",
+                },
+                "expectedRadios": {
+                    **template_markerfile["expectedRadios"],
+                    "collectionItem_col": True,
+                    "collectionItem_fixed": False,
+                },
+            })
+            tmap_state["markerFiles"].append(template_markerfile)
+
+
     # Save tmap file
-    with open(f"{output_folder}/tissuumaps_{coordinate_system}.tmap", "w") as f:
+    with open(f"{output_folder}/tissuumaps_project.tmap", "w") as f:
         json.dump(tmap_state, f, indent=2)
     
-    return sdata, f"{output_folder}/tissuumaps_{coordinate_system}.tmap"
+    return sdata, f"{output_folder}/tissuumaps_project.tmap"
 
 # Add main function with parameters for input file and output folder
 if __name__ == "__main__":

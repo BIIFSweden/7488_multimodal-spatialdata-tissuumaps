@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict
 
@@ -11,12 +12,14 @@ from geopandas import GeoDataFrame
 from roifile import ImagejRoi, ROI_TYPE
 from shapely.geometry import Polygon
 from spatialdata.models import Image2DModel, PointsModel, ShapesModel, TableModel
+from spatialdata import concatenate
 from tqdm import tqdm
 import json
 
 def load_table(
     sdata: Any, 
     input_file: str, 
+    element_name: str,
     transformations: Dict[str, Any]
 ) -> None:
     """
@@ -27,19 +30,24 @@ def load_table(
         input_file (str): Path to the CSV file containing cell type data.
         transformations (Dict[str, Any]): Transformation dictionary for spatial coordinates.
     """
+    table_name = element_name + "_cells"
     cell_types = pd.read_csv(input_file)
 
     obsm = {"spatial": cell_types[["X", "Y"]].to_numpy()}
-    obs = cell_types[["roi", "Cell.type", "Number", "Area"]]
-    obs["region_key"] = "cells"
+    # Keep columns in ["roi", "Cell.type", "Number", "Area"] if they exist
+    obs = cell_types[[col for col in ["roi", "Cell.type", "Number", "Area"] if col in cell_types.columns]]
+    obs["region_key"] = table_name
     obs["Index"] = obs.index
-
-    X = cell_types.drop(columns=["X", "Y", "roi", "Cell.type", "Number", "Area"])
+    
+    #X = cell_types.drop(columns=["X", "Y", "roi", "Cell.type", "Number", "Area"])
+    # Check existence of other columns
+    exclude_cols = ["X", "Y", "roi", "Cell.type", "Number", "Area", "Unnamed: 0"]
+    X = cell_types.drop(columns=[col for col in exclude_cols if col in cell_types.columns])
 
     adata = anndata.AnnData(X=X, obs=obs, obsm=obsm)
     
-    sdata.tables["cell_types"] = TableModel.parse(
-        adata, region="cells", region_key="region_key", instance_key="Index"
+    sdata.tables[element_name] = TableModel.parse(
+        adata, region=table_name, region_key="region_key", instance_key="Index"
     )
 
     circles = ShapesModel.parse(
@@ -49,7 +57,7 @@ def load_table(
         index=adata.obs["Index"],
         transformations=transformations,
     )
-    sdata.shapes["cells"] = circles
+    sdata.shapes[table_name] = circles
 
 def load_image(
     sdata: Any, tif_path: str, element_name: str, transformations: Dict[str, Any]
@@ -67,6 +75,28 @@ def load_image(
 
     if len(image_data.shape) == 2:
         image_data = np.expand_dims(image_data, axis=0)
+
+    elif image_data.ndim == 3:
+        y, x = image_data.shape[:2]
+        c_last = image_data.shape[2]
+
+        # Detect if input is (y, x, c) → transpose to (c, y, x)
+        if c_last <= 4 and image_data.shape[0] > 4:
+            # (y, x, c) format
+            image_data = np.transpose(image_data, (2, 0, 1))
+        elif image_data.shape[0] <= 4:
+            # Likely already (c, y, x)
+            pass
+        else:
+            raise ValueError(
+                f"Cannot determine whether TIFF is cyx or xyc. Shape: {image_data.shape}"
+            )
+
+    else:
+        raise ValueError(
+            f"Unsupported number of dimensions: {image_data.ndim}. "
+            "Expected 2D or 3D TIFF."
+        )
 
     metadata = {
         "scale": {"x": 1, "y": 1},
@@ -86,6 +116,7 @@ def load_image(
 def load_rois(
     sdata: Any,
     input_folder: str,
+    element_name: str,
     output_file: str,
     class_name: str,
     class_color: str,
@@ -105,7 +136,7 @@ def load_rois(
     
     if not os.path.exists(output_file):
         features = []
-
+        print (input_folder, output_file, os.listdir(input_folder))
         for filename in tqdm(os.listdir(input_folder)):
             
             if filename.endswith(".roi"):
@@ -147,7 +178,7 @@ def load_rois(
 
     names = [feature["properties"]["name"] for feature in geojson_data["features"]]
     shapes_model["name"] = names
-    sdata.shapes[class_name] = shapes_model
+    sdata.shapes[element_name] = shapes_model
 
 
 def load_points(
@@ -277,3 +308,47 @@ def load_DESI(
     image_data = np.array(image_data)
     #image_data = np.where(image_data == 0, np.nan, image_data) # Set 0 to NA
     load_numpy_grid(sdata, image_data, obs_names, element_name, transformations)
+
+def merge(
+    sdata_list
+):
+    sdata = concatenate(
+        sdata_list
+    )
+    # Loop through all _DESI_obs tables, and _cell_types tables
+    # Merge them into a single anndata object
+
+    # Known coordinate system IDs
+    ids = sorted(sdata.coordinate_systems, key=len, reverse=True)  # longest first
+
+    suffix_groups = defaultdict(list)
+
+    for name, adata in sdata.tables.items():
+        matched_id = None
+        
+        for id_ in ids:
+            prefix = id_ + "_"
+            if name.startswith(prefix):
+                matched_id = id_
+                suffix = name[len(prefix):]
+                suffix_groups[suffix].append(adata)
+                break
+
+        if matched_id is None:
+            # Table that matches none of the IDs
+            # Could be logged or ignored
+            pass
+
+    for suffix, adatas in suffix_groups.items():
+        print (suffix, len(adatas))
+        if len(adatas) == 1:
+            continue
+        merged_tables = anndata.concat(adatas, join="outer", label="batch")
+        regions = merged_tables.obs["region_key"].unique().tolist()
+        sdata.tables[suffix] = TableModel.parse(merged_tables, region=regions, region_key="region_key", instance_key="Index")
+
+        for id_ in ids:
+            table_name = f"{id_}_{suffix}"
+            if table_name in sdata.tables:
+                del sdata.tables[table_name]
+    return sdata
