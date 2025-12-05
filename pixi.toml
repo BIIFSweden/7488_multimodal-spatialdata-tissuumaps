@@ -5,7 +5,8 @@ name = "CraigWheelock2024-1"
 platforms = ["win-64"]
 version = "0.1.0"
 
-[tasks]
+[tasks.create_spatialdata]
+cmd = "python notebooks/create_spatialdata.py"
 
 [dependencies]
 geobuf = ">=2.0.0,<3"
