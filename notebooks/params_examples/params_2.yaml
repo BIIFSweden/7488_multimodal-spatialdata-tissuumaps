@@ -1,0 +1,78 @@
+######################################################################
+#  YAML configuration file – DESI + SCRINSHOT
+#  (uses external .csv file for the affine transformation matrix)
+######################################################################
+
+# -------------------------------------------------------------------
+# 1.  GLOBAL INPUT ROOT
+# -------------------------------------------------------------------
+root: "./"
+sample_id: "IgE_Neg"
+scale: 10
+
+# -------------------------------------------------------------------
+# 2.  TRANSFORMATIONS
+# -------------------------------------------------------------------
+# The only transformation needed is the affine that maps DESI ➜
+# SCRINSHOT.  The .csv file will be parsed by the code snippet you
+# provided.  The helper will construct the 3 × 3 matrix internally.
+transformations:
+
+  trans_DESI_to_HnE:
+    type: affine_csv
+    file: "${root}/transform_matrices/28Apr_ERJ_slide19_IgE_Neg.csv"
+
+  trans_HnE_to_DESI:
+    type: inversed_affine_csv
+    file: "${root}/transform_matrices/28Apr_ERJ_slide19_IgE_Neg.csv"
+
+# -------------------------------------------------------------------
+# 3.  IMAGES
+# -------------------------------------------------------------------
+images:
+
+  # 3-1  HnE
+  - id:  HnE
+    file: "${root}./HnE/28Apr_ERJ_slide19_RHS.tif"
+    transformations: trans_HnE_to_DESI
+
+
+# -------------------------------------------------------------------
+# 4.  SHAPES / ROIs
+# -------------------------------------------------------------------
+shapes:
+
+  - id: anatomical_labels
+    folder: "${root}/DESI-MRM/images/28Apr_ERJ_slide19_IgE_Neg/anatomical_labels"
+    class_name:  anatomical_labels
+    class_color: [0, 255, 0]
+    transformations: trans_HnE_to_DESI
+
+# -------------------------------------------------------------------
+# 5.  POINTS
+# -------------------------------------------------------------------
+#points:
+#  - id: SCRINSHOT_DOT_COORDINATES
+#    folder: "${root}/SCRINSHOT/26june_P3_formicAcid_SCRINSHOT_test_2/DOT-COORDINATES"
+#    transformations: null
+
+
+# -------------------------------------------------------------------
+# 6.  TABLES
+# -------------------------------------------------------------------
+tables: []
+
+
+# -------------------------------------------------------------------
+# 7.  DESI MRM block
+# -------------------------------------------------------------------
+DESI:
+  id: DESI_NORM
+  input_path: "${root}/DESI-MRM/images/28Apr_ERJ_slide19_IgE_Neg/response_SNRfiltered_NORM"
+  transformations: null
+    
+
+
+######################################################################
+# End of YAML file
+######################################################################
