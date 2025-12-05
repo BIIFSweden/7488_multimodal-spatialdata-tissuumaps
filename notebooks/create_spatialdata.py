@@ -20,10 +20,13 @@ import numpy as np
 import json
 
 # SpatialData & transformations
-from spatialdata import SpatialData
+from spatialdata import SpatialData, get_extent
 from spatialdata.transformations import (
     Affine,
     Identity,
+    Scale,
+    get_transformation,
+    set_transformation,
     Sequence,
 )
 
@@ -58,109 +61,6 @@ def _build_affine_from_csv(csv_file: Path) -> Affine:
     mat = mat.reshape((2, 3), order="F")
     mat = np.vstack([mat, [0, 0, 1]])
     return Affine(mat, input_axes=("x", "y"), output_axes=("x", "y"))
-
-
-def _make_primitive_transform(name: str, spec: dict, root: Path):
-    """
-    Generate a SpatialData transformation object from its YAML spec.
-    """
-    ttype = spec["type"].lower()
-
-    if ttype == "identity":
-        return Identity()
-
-    if ttype == "affine_csv":
-        csv_file = _resolve(spec["file"], root)
-        return _build_affine_from_csv(csv_file)
-
-    if ttype == "affine":
-        matrix = np.asarray(spec["matrix"], dtype=float)
-        return Affine(matrix, input_axes=("x", "y"), output_axes=("x", "y"))
-
-    if ttype == "sequence":
-        # members will be expanded later – return a placeholder
-        return "SEQUENCE_PLACEHOLDER"
-
-    raise ValueError(f"Unsupported transformation type: {ttype}")
-
-
-def _expand_transform_reference(
-    ref: str | dict,
-    primitives: dict[str, object],
-    root: Path,
-):
-    """
-    Convert any reference or inline spec to a concrete transformation.
-    """
-    # ------------------------------------------------------------------
-    # (1) string references ("identity", "T.inv", "T")
-    # ------------------------------------------------------------------
-    if isinstance(ref, str):
-        if ref.lower() == "identity":
-            return Identity()
-
-        if ref.endswith(".inverse") or ref.endswith(".inv"):
-            base_name = ref.rsplit(".", 1)[0]
-            return primitives[base_name].inverse()
-
-        return primitives[ref]
-
-    # ------------------------------------------------------------------
-    # (2) inline dictionary  (e.g. {"type": "sequence", ...})
-    # ------------------------------------------------------------------
-    if isinstance(ref, dict):
-        ttype = ref["type"].lower()
-        if ttype == "sequence":
-            members = [
-                _expand_transform_reference(m, primitives, root)
-                for m in ref["members"]
-            ]
-            return Sequence(members)
-
-        # re-route to primitive builder for other on-the-fly cases
-        return _make_primitive_transform("inline", ref, root)
-
-    raise TypeError(f"Cannot interpret transform reference: {ref}")
-
-
-def _parse_all_transforms_(t_yaml: dict, root: Path):
-    """
-    Generates two dictionaries:
-
-    primitives         name -> Affine / Identity / …
-    transform_sets     set  -> { coordinate_system : transform_object }
-    """
-    primitives: dict[str, object] = {}
-    transform_sets: dict[str, dict[str, object]] = {}
-
-    # pass (1) – only store the real primitive transforms
-    for name, spec in t_yaml.items():
-        if isinstance(spec, dict) and "type" in spec:
-            primitives[name] = _make_primitive_transform(name, spec, root)
-
-    # pass (2) – expand sequences now that primitives exist
-    for name, obj in list(primitives.items()):
-        if obj == "SEQUENCE_PLACEHOLDER":  # fill it now
-            spec = t_yaml[name]
-            primitives[name] = _expand_transform_reference(spec, primitives, root)
-
-    # pass (3) – transformation SETS (SCRINSHOT_trans, DESI_trans …)
-    for name, spec in t_yaml.items():
-        if name in primitives:  # already handled
-            continue
-
-        if not isinstance(spec, dict):
-            raise ValueError(f"Malformed transformation-set: {name}")
-
-        set_dict = {}
-        for cs_name, sub_spec in spec.items():
-            set_dict[cs_name] = _expand_transform_reference(
-                sub_spec, primitives, root
-            )
-        transform_sets[name] = set_dict
-
-    return primitives, transform_sets
-
 
 # ---------------------------------------------------------------------
 # 1-bis.  *Extremely* simple transform parser
@@ -198,6 +98,10 @@ def _parse_all_transforms(t_yaml: dict, root: Path):
             csv_file = _resolve(spec["file"], root)
             tr = _build_affine_from_csv(csv_file)
 
+        elif ttype == "inversed_affine_csv":
+            csv_file = _resolve(spec["file"], root)
+            tr = _build_affine_from_csv(csv_file).inverse()
+
         elif ttype == "affine":
             mat = np.asarray(spec["matrix"], dtype=float)
             tr = Affine(mat, input_axes=("x", "y"), output_axes=("x", "y"))
@@ -217,7 +121,7 @@ def _parse_all_transforms(t_yaml: dict, root: Path):
 def build_spatialdata_from_yaml(
         yaml_file: str | Path,
         output_dir: str | Path = None
-    ) -> SpatialData:
+    ) -> tuple[str, SpatialData]:
     """
     Parameters
     ----------
@@ -343,8 +247,31 @@ def build_spatialdata_from_yaml(
             transformations=t_set,
         )
 
+    # Get full sample width from sdata
+    sdata_extent = get_extent(sdata, coordinate_system="global")
+    full_width = sdata_extent['x'][1] - sdata_extent['x'][0]
+    print (f"Sample '{sample_id}' full width: {full_width:.1f} units")
+    if ("min_width" in cfg) and (full_width < cfg["min_width"]):
+        scale_factor = cfg["min_width"] / full_width
+        print (f"Scaling up sample '{sample_id}' by factor {scale_factor:.3f} to reach min_width={cfg['min_width']}")
+        scale_transform = Scale(
+            scale=[scale_factor, scale_factor],
+            axes=("x", "y")
+        )
+        for key in (
+            list(sdata.images)
+            + list(sdata.labels)
+            + list(sdata.shapes)
+            + list(sdata.points)
+        ):
+            old = get_transformation(sdata[key])
+            set_transformation(sdata[key], Sequence([old, scale_transform]), to_coordinate_system="global")
+        sdata_extent = get_extent(sdata, coordinate_system="global")
+        full_width = sdata_extent['x'][1] - sdata_extent['x'][0]
+        print (f"Sample '{sample_id}' full width after rescaling: {full_width:.1f} units")
+        
     sdata.rename_coordinate_systems({'global': sample_id})
-    return sdata
+    return sample_id, sdata
 
 # ---------------------------------------------------------------------
 # CLI helper (updated)
@@ -375,6 +302,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Merge all created SpatialData objects into a single one.",
     )
+    parser.add_argument(
+        "--col",
+        type=int,
+        default=None,
+        help="Number of columns for arranging coordinate systems in TissUUmaps.",
+    )
 
     args = parser.parse_args()
 
@@ -382,12 +315,14 @@ if __name__ == "__main__":
     # 1. Build an sdata for each YAML file
     # --------------------------------------------------------------
     sdata_list = []
+    ids = []
     for yml in args.yaml:
         print(f"\nProcessing {yml} ...")
-        sdata = build_spatialdata_from_yaml(yml, output_dir=args.out)
+        id, sdata = build_spatialdata_from_yaml(yml, output_dir=args.out)
         print (sdata)
         sdata_list.append(sdata)
-
+        ids.append(id)
+    print (ids)
     # --------------------------------------------------------------
     # 2. If merge requested → merge all sdata objects
     # --------------------------------------------------------------
@@ -408,7 +343,8 @@ if __name__ == "__main__":
             "points": merged.points,
         },
         output_folder = args.out,
-        coordinate_systems = merged.coordinate_systems
+        coordinate_systems = ids,
+        columns = args.col if hasattr(args, "col") else None,
     )
     print (tmap_file)
     # Post-process the TissUUmaps file:
@@ -436,7 +372,8 @@ if __name__ == "__main__":
                 dropdownOption["expectedHeader.opacity_col"] = ""
                 dropdownOption["expectedRadios.opacity_check"] = False
 
-
+    tmap_state["plugins"] = ["addLabels"]
+    
     with open(tmap_file, "w") as f:
         json.dump(tmap_state, f, indent=2)
 

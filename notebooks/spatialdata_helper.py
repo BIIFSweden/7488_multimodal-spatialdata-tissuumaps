@@ -134,41 +134,39 @@ def load_rois(
         transformations (Dict[str, Any]): Transformation dictionary for spatial coordinates.
     """
     
-    if not os.path.exists(output_file):
-        features = []
-        print (input_folder, output_file, os.listdir(input_folder))
-        for filename in tqdm(os.listdir(input_folder)):
-            
-            if filename.endswith(".roi"):
-
-                roi_path = os.path.join(input_folder, filename)
-                try:
-                    
-                    roi = ImagejRoi.fromfile(roi_path)
-                    
-                    if roi.roitype in (ROI_TYPE.TRACED, ROI_TYPE.POLYGON, ROI_TYPE.FREEHAND):
-                        print(os.path.splitext(filename)[0])
-                        coords = roi.coordinates().tolist()
-                        coords.append(coords[0])
-                        feature = geojson.Feature(
-                            geometry=geojson.Polygon([coords]),
-                            properties={
-                                "name": os.path.splitext(filename)[0],
-                                "classification": {
-                                    "name": class_name,
-                                    "color": class_color,
-                                },
-                            },
-                        )
-                        features.append(feature)
-                except Exception as e:
-                    
-                    print(f"Error processing {filename}: {e}")
-                             
-        feature_collection = geojson.FeatureCollection(features)
+    features = []
+    for filename in tqdm(os.listdir(input_folder)):
         
-        with open(output_file, "w") as f:
-            geojson.dump(feature_collection, f, indent=2)
+        if filename.endswith(".roi"):
+
+            roi_path = os.path.join(input_folder, filename)
+            try:
+                
+                roi = ImagejRoi.fromfile(roi_path)
+                
+                if roi.roitype in (ROI_TYPE.TRACED, ROI_TYPE.POLYGON, ROI_TYPE.FREEHAND):
+                    print(os.path.splitext(filename)[0])
+                    coords = roi.coordinates().tolist()
+                    coords.append(coords[0])
+                    feature = geojson.Feature(
+                        geometry=geojson.Polygon([coords]),
+                        properties={
+                            "name": os.path.splitext(filename)[0],
+                            "classification": {
+                                "name": class_name,
+                                "color": class_color,
+                            },
+                        },
+                    )
+                    features.append(feature)
+            except Exception as e:
+                
+                print(f"Error processing {filename}: {e}")
+                            
+    feature_collection = geojson.FeatureCollection(features)
+    
+    with open(output_file, "w") as f:
+        geojson.dump(feature_collection, f, indent=2)
 
     shapes_model = ShapesModel.parse(output_file, transformations=transformations)
     

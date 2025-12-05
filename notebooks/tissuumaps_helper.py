@@ -356,16 +356,19 @@ def spatialdata_to_tissuumaps(
     sdata_raw: SpatialData, 
     elements: Dict[str, str],
     output_folder: str, 
-    coordinate_systems: List[str]
+    coordinate_systems: List[str],
+    columns: int | None = None,
 ) -> None:
     os.makedirs(output_folder, exist_ok=True)
     layer_index = 0
     offset_x = 0
     offset_y = 0
     tmap_state = get_tmap_state()
-
+    if columns is None:
+        columns = len(coordinate_systems)
     table_elements = {}
-    for coordinate_system in coordinate_systems:
+    max_height = 0
+    for sample_index, coordinate_system in enumerate(coordinate_systems):
         print (f"Converting to TissUUmaps in coordinate system: {coordinate_system}")
         sdata = transform_to_data_extent(
             sdata_raw, coordinate_system=coordinate_system, target_unit_to_pixels=1, maintain_positioning=False
@@ -373,6 +376,7 @@ def spatialdata_to_tissuumaps(
         sdata_extent = get_extent(sdata_raw, coordinate_system=coordinate_system)
         for shape_element in elements["shapes"]:# or sdata.shapes:
             try:
+                print (f"Processing shape element: {shape_element} on layer {layer_index}")
                 add_shape(sdata, shape_element, output_folder, tmap_state, layer_index)
             except Exception as e:
                 print(f"Failed to add shape {shape_element}: {e}")
@@ -413,8 +417,14 @@ def spatialdata_to_tissuumaps(
                 layer_index += 1
             except Exception as e:
                 print(f"Failed to add image {image_element}: {e}")
-        offset_x += (sdata_extent['x'][1] - sdata_extent['x'][0]) * 1.1
-        offset_y += 0
+        max_height = max(sdata_extent['y'][1] - sdata_extent['y'][0], max_height)
+        if ((sample_index + 1) % columns) == 0:
+            offset_x = 0
+            offset_y += max_height * 1.1
+            max_height = 0
+        else:
+            offset_x += (sdata_extent['x'][1] - sdata_extent['x'][0]) * 1.1
+            offset_y += 0
 
     # Merge tables that come from different coordinate systems but represent the same data
     for table_element in table_elements.values():
