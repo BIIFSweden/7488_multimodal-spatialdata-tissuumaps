@@ -12,6 +12,8 @@ pip install pyyaml spatialdata napari-spatialdata  # plus your helpers
 
 from __future__ import annotations
 import os
+os.add_dll_directory(r"C:\openslide\bin")
+
 from pathlib import Path
 import re
 import yaml
@@ -328,8 +330,11 @@ if __name__ == "__main__":
     print (merged)
     os.makedirs(args.out, exist_ok=True)
     
-    merged.write(args.out + "/merged_spatialdata.zarr", overwrite=True)
-    print(f"Merged SpatialData written to: {args.out}")
+    #zarr save
+    zarr_path = os.path.join(os.path.dirname(args.out), os.path.basename(args.out) + ".zarr")
+    
+    merged.write(zarr_path, overwrite=True)
+    print(f"Merged SpatialData written to: {zarr_path}")
     
     sdata_extended, tmap_file = tm_h.spatialdata_to_tissuumaps(
         merged, 
