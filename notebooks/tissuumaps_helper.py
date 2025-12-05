@@ -368,6 +368,8 @@ def spatialdata_to_tissuumaps(
         columns = len(coordinate_systems)
     table_elements = {}
     max_height = 0
+    labels = []
+    image1_width = None
     for sample_index, coordinate_system in enumerate(coordinate_systems):
         print (f"Converting to TissUUmaps in coordinate system: {coordinate_system}")
         sdata = transform_to_data_extent(
@@ -412,11 +414,16 @@ def spatialdata_to_tissuumaps(
                     "w": extent['x'][1] - extent['x'][0],
                     "h": extent['y'][1] - extent['y'][0]
                 }
+                if image1_width is None:
+                    image1_width = sdata_extent['x'][1] - sdata_extent['x'][0]
                 tmap_state["layers"][-1]["x"] = offset_x
                 tmap_state["layers"][-1]["y"] = offset_y
                 layer_index += 1
             except Exception as e:
                 print(f"Failed to add image {image_element}: {e}")
+
+        labels.append({"text": coordinate_system, "x": offset_x / image1_width, "y": offset_y / image1_width - 0.01, "rotation": 0, "size": 50, "zoomable": True, "placement": "BOTTOM"})
+         
         max_height = max(sdata_extent['y'][1] - sdata_extent['y'][0], max_height)
         if ((sample_index + 1) % columns) == 0:
             offset_x = 0
@@ -468,6 +475,24 @@ def spatialdata_to_tissuumaps(
             })
             tmap_state["markerFiles"].append(template_markerfile)
 
+    tmap_state["plugins"] = ["cw2024_1_plugin"]
+    tmap_state["settings"] = [
+        {
+            "function": "startPlugin", 
+            "module": "pluginUtils", 
+            "value": [
+                "cw2024_1_plugin", 
+                [{"name": "_labels", "value": json.dumps(labels)}, {"name": "_addLayers", "value": False}, {"name": "_fontColor", "value": "#000000"}, {"name": "_layerFontSize", "value": 15}], 
+                False
+            ]
+        }
+    ]
+    # Copy ./cw2024_1_plugin.js to $HOME/.tissuumaps/plugins/
+    import shutil
+    home = os.path.expanduser("~")
+    plugins_folder = os.path.join(home, ".tissuumaps", "plugins")
+    os.makedirs(plugins_folder, exist_ok=True)
+    shutil.copy("./cw2024_1_plugin.js", os.path.join(plugins_folder, "cw2024_1_plugin.js"))
 
     # Save tmap file
     with open(f"{output_folder}/tissuumaps_project.tmap", "w") as f:
