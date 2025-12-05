@@ -248,12 +248,9 @@ def build_spatialdata_from_yaml(
         )
 
     # Get full sample width from sdata
-    sdata_extent = get_extent(sdata, coordinate_system="global")
-    full_width = sdata_extent['x'][1] - sdata_extent['x'][0]
-    print (f"Sample '{sample_id}' full width: {full_width:.1f} units")
-    if ("min_width" in cfg) and (full_width < cfg["min_width"]):
-        scale_factor = cfg["min_width"] / full_width
-        print (f"Scaling up sample '{sample_id}' by factor {scale_factor:.3f} to reach min_width={cfg['min_width']}")
+    if ("scale" in cfg) and (cfg["scale"] != 1):
+        scale_factor = cfg["scale"]
+        print (f"Scaling sample '{sample_id}' by factor {scale_factor:.3f}")
         scale_transform = Scale(
             scale=[scale_factor, scale_factor],
             axes=("x", "y")
