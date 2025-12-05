@@ -488,11 +488,14 @@ def spatialdata_to_tissuumaps(
         }
     ]
     # Copy ./cw2024_1_plugin.js to $HOME/.tissuumaps/plugins/
+    print(os.getcwd() )
     import shutil
     home = os.path.expanduser("~")
     plugins_folder = os.path.join(home, ".tissuumaps", "plugins")
+    
+    this_dir = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(plugins_folder, exist_ok=True)
-    shutil.copy("./cw2024_1_plugin.js", os.path.join(plugins_folder, "cw2024_1_plugin.js"))
+    shutil.copy(os.path.join(this_dir, "cw2024_1_plugin.js"), os.path.join(plugins_folder, "cw2024_1_plugin.js"))
 
     # Save tmap file
     with open(f"{output_folder}/tissuumaps_project.tmap", "w") as f:
