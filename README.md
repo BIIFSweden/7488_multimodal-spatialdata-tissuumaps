@@ -1,4 +1,4 @@
-# Spatial mapping of oxylipins in lung tissue
+# Export multimodal tissue imaging data to SpatialData and TissUUmaps
 
 Combine multiple imaging modalities of the same tissue section — DESI mass spectrometry imaging, microscopy images (e.g. H&E), SCRINSHOT data and ImageJ ROI annotations — into a single [SpatialData](https://spatialdata.scverse.org/) object, applying affine transformations to align the modalities in a shared coordinate system. The resulting object is then exported as a [TissUUmaps](https://tissuumaps.github.io/) project for interactive visualization.
 
