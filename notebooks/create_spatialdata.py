@@ -1,5 +1,5 @@
 """
-build_sdata_from_yaml.py
+create_spatialdata.py
 
 Utility that reads the YAML specification produced for the
 “DESI + SCRINSHOT” project and builds a ready-to-use SpatialData
@@ -12,7 +12,10 @@ pip install pyyaml spatialdata napari-spatialdata  # plus your helpers
 
 from __future__ import annotations
 import os
-os.add_dll_directory(r"C:\openslide\bin")
+
+# OpenSlide DLLs are needed on Windows if reading whole-slide images
+if os.path.exists(r"C:\openslide\bin"):
+    os.add_dll_directory(r"C:\openslide\bin")
 
 from pathlib import Path
 import re
