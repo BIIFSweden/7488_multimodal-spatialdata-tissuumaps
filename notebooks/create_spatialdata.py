@@ -310,6 +310,13 @@ if __name__ == "__main__":
         default=None,
         help="Number of columns for arranging coordinate systems in TissUUmaps.",
     )
+    parser.add_argument(
+        "--desi-cmap",
+        type=str,
+        default="interpolateInferno",
+        help="d3 colormap for DESI intensities in TissUUmaps "
+             "(e.g. interpolateInferno, interpolateMagma, interpolateViridis).",
+    )
 
     args = parser.parse_args()
 
@@ -363,10 +370,11 @@ if __name__ == "__main__":
         for dropdownOption in markerFile["dropdownOptions"]:
             dropdownOption["name"] = dropdownOption["name"].replace("Gene expression: ", "")
 
-    # Make the opacity column the same as the color column for the first marker file
+    # DESI marker files: own colormap, and opacity follows the colour column
     for markerFile in tmap_state["markerFiles"]:
         if not "DESI" in markerFile["name"]:
             continue
+        markerFile["expectedHeader"]["cb_cmap"] = args.desi_cmap
         for dropdownOption in markerFile["dropdownOptions"]:
             if not "expectedHeader.cb_col" in dropdownOption:
                 continue
@@ -377,8 +385,10 @@ if __name__ == "__main__":
                 dropdownOption["expectedHeader.opacity_col"] = ""
                 dropdownOption["expectedRadios.opacity_check"] = False
 
-    tmap_state["plugins"] = ["addLabels"]
-    
+    # Do not touch tmap_state["plugins"] here: spatialdata_to_tissuumaps already
+    # registers cw2024_1_plugin and the startPlugin call carrying the sample labels.
+    # Overwriting the list drops that plugin and the labels never render.
+
     with open(tmap_file, "w") as f:
         json.dump(tmap_state, f, indent=2)
 
