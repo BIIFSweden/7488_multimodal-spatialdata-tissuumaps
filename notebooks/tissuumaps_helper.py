@@ -148,6 +148,12 @@ def add_image(sdata: SpatialData, image_element: str, output_folder: str, tmap_s
         }
     )
 
+    # spatialdata_helper.load_numpy_grid names the DESI PCA composite
+    # "<element>_image". It covers the H&E underneath, so start it hidden;
+    # it can be switched back on in TissUUmaps.
+    if image_element.endswith("_image"):
+        tmap_state.setdefault("layerVisibilities", {})[str(layer)] = False
+
 
 def add_shape(sdata: SpatialData, shape_element: str, output_folder: str, tmap_state: Dict, layer: int) -> None:
     """
